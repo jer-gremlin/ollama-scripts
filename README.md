@@ -1,11 +1,16 @@
 # ollama-scripts
 
+![hello](./hello.png)
+
 Point coding CLIs at [ollama.com](https://ollama.com)'s cloud models using one `OLLAMA_API_KEY`. No `ollama launch`, no sign-in.
+
+It is however recommended that you have the tool `curl -fsSL https://ollama.com/install.sh | sh` installed so you can take advantage of local models.
 
 ## Setup
 
 ```sh
 export OLLAMA_API_KEY=...   # your ollama.com key (put in shell rc)
+# set -gx OLLA...           # if you're on fish
 mise install                # fetch gum (model chooser)
 mise run check              # verify key + API reachable
 mise run install            # symlink launchers into ~/.local/bin
@@ -50,11 +55,3 @@ Each launcher is ~10 lines. Copy one, then:
    ```sh
    exec yourtool --model "$MODEL" "${REST[@]+"${REST[@]}"}"
    ```
-
-Ollama.com speaks all three wire formats — OpenAI chat/completions, OpenAI
-responses, and Anthropic messages — so most CLIs need only a base-URL + key.
-**Auth is `Authorization: Bearer`; the Anthropic `x-api-key` header is rejected**
-(use `ANTHROPIC_AUTH_TOKEN`, not `ANTHROPIC_API_KEY`).
-
-Model names are ollama's (`gpt-oss:120b`, `qwen3-coder:480b`, …), not `gpt-4`/`claude-*`.
-`_models` (in `lib.sh`) prints the live list.
