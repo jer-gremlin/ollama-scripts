@@ -5,11 +5,11 @@ source "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/lib.sh"
 _require_key
 
 _resolve_model codex "$@"
-catalog=$(_codex_catalog "$MODEL")
+catalogue=$(_codex_catalogue "$MODEL")
 
 exec codex \
   -c "model=\"$MODEL\"" \
-  -c "model_catalog_json=\"$catalog\"" \
+  -c "model_catalog_json=\"$catalogue\"" \
   -c 'model_provider="ollama_cloud"' \
   -c 'model_providers.ollama_cloud.name="Ollama Cloud"' \
   -c 'model_providers.ollama_cloud.base_url="https://ollama.com/v1"' \

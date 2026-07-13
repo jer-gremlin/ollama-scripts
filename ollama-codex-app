@@ -1,0 +1,97 @@
+#!/usr/bin/env bash
+# Point the Codex desktop app at ollama.com using OLLAMA_API_KEY.
+# The desktop app reads ~/.codex/config.toml (it ignores launch-time -c flags),
+# so this writes a provider profile there, direct to ollama.com with the key
+# baked in, then restarts the app.
+#   ollama-codex-app [--model NAME]   configure + launch
+#   ollama-codex-app --restore        revert config.toml from the backup
+# config.toml is backed up to config.toml.ollama-scripts.bak before first change.
+set -euo pipefail
+source "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/lib.sh"
+
+[ "$(uname -s)" = "Darwin" ] || _die "ollama-codex-app is macOS-only"
+
+CONFIG="$HOME/.codex/config.toml"
+BAK="$CONFIG.ollama-scripts.bak"
+PROVIDER="ollama-scripts"
+
+if [ "${1:-}" = "--restore" ]; then
+  [ -f "$BAK" ] || _die "no backup at $BAK"
+  cp "$BAK" "$CONFIG"
+  echo "Codex App config restored from backup."
+else
+  _require_key
+  _resolve_model codex "$@"
+  catalogue=$(_codex_catalogue "$MODEL")
+
+  mkdir -p "$HOME/.codex"
+  [ -f "$CONFIG" ] && [ ! -f "$BAK" ] && cp "$CONFIG" "$BAK"   # preserve original
+
+  CONFIG="$CONFIG" PROVIDER="$PROVIDER" MODEL="$MODEL" CATALOGUE="$catalogue" \
+  OLLAMA_API_KEY="$OLLAMA_API_KEY" python3 - <<'PY'
+import os, re, json
+
+path = os.environ["CONFIG"]; prov = os.environ["PROVIDER"]
+model = os.environ["MODEL"]; catalogue = os.environ["CATALOGUE"]; key = os.environ["OLLAMA_API_KEY"]
+
+# Match the reasoning effort to the catalogue: a reasoning model with a stale
+# effort = "none" makes Codex mishandle the stream and leak <think> tags.
+try:
+    entry = json.load(open(catalogue))["models"][0]
+    effort = "low" if entry.get("supported_reasoning_levels") else "none"
+except Exception:
+    effort = "none"
+
+try:
+    with open(path) as f:
+        text = f.read()
+except FileNotFoundError:
+    text = ""
+
+# TOML root keys must precede the first table header; edit only that preamble.
+m = re.search(r'(?m)^\[', text)
+split = m.start() if m else len(text)
+preamble, rest = text[:split], text[split:]
+
+def set_root(pre, key_, val):
+    line = f'{key_} = "{val}"'
+    pat = re.compile(rf'(?m)^{re.escape(key_)}\s*=.*$')   # uncommented root key
+    if pat.search(pre):
+        return pat.sub(line, pre, count=1)
+    sep = "" if pre.endswith("\n") or pre == "" else "\n"
+    return pre + sep + line + "\n"
+
+for k, v in (("model", model), ("model_provider", prov),
+             ("model_catalog_json", catalogue), ("model_reasoning_effort", effort)):
+    preamble = set_root(preamble, k, v)
+
+text = preamble + rest
+
+# Replace any existing provider table for our name, then append a fresh one.
+header = f"[model_providers.{prov}]"
+text = re.sub(rf'(?ms)^{re.escape(header)}.*?(?=^\[|\Z)', "", text)
+text = text.rstrip("\n") + "\n\n" + "\n".join([
+    header,
+    'name = "Ollama Cloud"',
+    'base_url = "https://ollama.com/v1"',
+    'wire_api = "responses"',
+    f'experimental_bearer_token = "{key}"',
+]) + "\n"
+
+with open(path, "w") as f:
+    f.write(text)
+print("Codex App profile changed to Ollama Cloud.")
+PY
+fi
+
+# Restart Codex so it re-reads config.toml.
+if pgrep -f "Codex.app/Contents/MacOS/" >/dev/null 2>&1; then
+  osascript -e 'tell application "Codex" to quit' >/dev/null 2>&1 || true
+  for _ in $(seq 1 30); do
+    pgrep -f "Codex.app/Contents/MacOS/" >/dev/null 2>&1 || break
+    sleep 0.2
+  done
+  sleep 0.5   # let the app fully release before relaunch
+fi
+# `codex app` installs the desktop app if missing, then launches it.
+exec codex app

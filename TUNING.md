@@ -36,13 +36,23 @@ You get the three things every harness wants:
 
 The model's page at `https://ollama.com/library/<model>` lists the context length too.
 
+## Shared metadata functions (lib.sh)
+
+All three launchers now share metadata-fetching functions:
+
+- `_model_metadata <model>` — fetches `/api/show`, returns JSON with `context_window`, `capabilities`, `details`
+- `_codex_catalogue <model>` — builds Codex catalogue from metadata
+- `_pi_model_dict <model>` — builds pi model entry from metadata
+
+These ensure consistent metadata across all harnesses.
+
 ## Codex (automatic)
 
-`ollama-codex` already does this for you: on each launch `_codex_catalog`
+`ollama-codex` already does this for you: on each launch `_codex_catalogue`
 (in `lib.sh`) fetches `/api/show` for the chosen model, derives
 `context_window` (from `model_info.*.context_length`), reasoning levels and
 image support (from `capabilities`), writes a catalogue to
-`~/.config/ollama-scripts/codex-catalog.json`, and passes it via
+`~/.config/ollama-scripts/codex-catalogue.json`, and passes it via
 `-c model_catalog_json=…`. No action needed. If the fetch fails it still writes
 a 128k-context fallback entry, which silences the warning.
 
@@ -74,35 +84,29 @@ Wire it in `ollama-codex` by adding one line to the `exec codex` block:
 
 `context_window` alone silences the warning; the rest improves behaviour.
 
-## pi
+## pi (automatic)
 
-pi's per-model metadata are fields on the model entry in `models.json`
-(defaults: `contextWindow` 128000, `maxTokens` 16384). Tunable fields:
+`ollama-pi` now auto-fetches metadata for the selected model. On each launch:
+
+1. `_pi_model_dict` fetches `/api/show` for the chosen model
+1. Builds a model entry with `contextWindow`, `reasoning`, `input` modalities
+1. Writes to `~/.pi/agent/models.json` with the selected model having full metadata
+
+The selected model gets full metadata; other models in the list get `id` only.
+This ensures the model you're actually using has correct context window and
+capabilities without slowing startup with 30+ API calls.
+
+Fields populated:
 
 ```jsonc
 {
   "id": "gpt-oss:120b",
-  "contextWindow": 131072,
-  "maxTokens": 32768,
-  "reasoning": true,                 // capabilities has thinking
-  "input": ["text"],                 // add "image" for vision
-  "compat": { "supportsReasoningEffort": true }
+  "contextWindow": 131072,        // from /api/show
+  "maxTokens": 16384,             // default
+  "reasoning": true,              // if capabilities has thinking
+  "input": ["text", "image"],     // vision if capabilities has it
+  "compat": { "supportsReasoningEffort": true }  // if reasoning
 }
-```
-
-Caveat: `ollama-pi` **rewrites** `providers.ollama_cloud` on every launch, so
-edits to `models.json` are overwritten. To persist pi tuning, edit the model
-dict inside `ollama-pi` itself — the line:
-
-```python
-"models": [{"id": i} for i in ids],
-```
-
-Replace with a lookup that adds fields for the ids you care about, e.g.:
-
-```python
-TUNED = {"gpt-oss:120b": {"contextWindow": 131072, "reasoning": True}}
-"models": [{"id": i, **TUNED.get(i, {})} for i in ids],
 ```
 
 ## Claude Code

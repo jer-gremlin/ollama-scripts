@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Launch the Ollama desktop app with OLLAMA_API_KEY in its environment so its
+# embedded server can reach ollama.com's cloud models without interactive
+# sign-in. macOS GUIs launched via `open` don't inherit shell env, so the app
+# binary is exec'd directly (detached) to carry the key through.
+set -euo pipefail
+source "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/lib.sh"
+_require_key
+
+[ "$(uname -s)" = "Darwin" ] || _die "ollama-gui is macOS-only"
+
+APP=""
+for p in /Applications/Ollama.app "$HOME/Applications/Ollama.app"; do
+  [ -d "$p" ] && { APP="$p"; break; }
+done
+[ -n "$APP" ] || _die "Ollama.app not found (install from https://ollama.com/download)"
+
+bin="$APP/Contents/MacOS/Ollama"
+if pgrep -f "$bin" >/dev/null 2>&1; then
+  echo "ollama-gui: Ollama is already running; quit it first for the key to apply" >&2
+  exec open "$APP"
+fi
+
+export OLLAMA_API_KEY
+nohup "$bin" >/dev/null 2>&1 &
+disown 2>/dev/null || true
+echo "ollama-gui: launched $APP with OLLAMA_API_KEY set"

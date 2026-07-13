@@ -6,27 +6,41 @@ _require_key
 
 _resolve_model pi "$@"
 
+# Fetch metadata for selected model (context_window, capabilities).
+# This populates models.json with correct contextWindow, reasoning, input modalities.
+PI_MODEL_ENTRY=$(_pi_model_dict "$MODEL")
+
 # Upsert an "ollama_cloud" OpenAI-compatible provider in pi's models.json,
-# populated with the current cloud model list. Key is passed at runtime.
-# List captured to a var (no pipe) so a broken pipe can't abort the script.
-PI_MODEL_IDS="$(_models)" \
+# populated with the current cloud model list and selected model's metadata.
 PI_MODELS="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/models.json" \
+PI_MODEL_ENTRY="$PI_MODEL_ENTRY" \
+PI_MODEL="$MODEL" \
+PI_MODEL_IDS="$(_models)" \
 python3 - <<'PY'
 import json, os
 path = os.environ["PI_MODELS"]
-ids = [l.strip() for l in os.environ["PI_MODEL_IDS"].splitlines() if l.strip()]
+entry = json.loads(os.environ["PI_MODEL_ENTRY"])
+selected = os.environ["PI_MODEL"]
+all_ids = [l.strip() for l in os.environ["PI_MODEL_IDS"].splitlines() if l.strip()]
 try:
     with open(path) as f:
         d = json.load(f)
 except FileNotFoundError:
     d = {}
 d.setdefault("providers", {})
+# Build models list: selected model with full metadata, others with id only
+models = []
+for mid in all_ids:
+    if mid == selected:
+        models.append(entry)
+    else:
+        models.append({"id": mid})
 d["providers"]["ollama_cloud"] = {
     "baseUrl": "https://ollama.com/v1",
     "api": "openai-completions",
     "apiKey": "ollama",          # overridden at runtime by --api-key
-    "compat": {"supportsDeveloperRole": False, "supportsReasoningEffort": False},
-    "models": [{"id": i} for i in ids],
+    "compat": {"supportsDeveloperRole": False, "supportsReasoningEffort": entry.get("reasoning", False)},
+    "models": models,
 }
 os.makedirs(os.path.dirname(path), exist_ok=True)
 with open(path, "w") as f:

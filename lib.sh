@@ -28,23 +28,28 @@ _models() {
   fi
 }
 
-# _codex_catalog <model>  -> writes a Codex model catalogue for <model> derived
-# from /api/show, echoes its path. Silences "Model metadata not found".
-# Falls back to a sane default entry if the fetch fails (still silences it).
-_codex_catalog() {
-  local model="$1" out="$STATE_DIR/codex-catalog.json" raw
-  mkdir -p "$STATE_DIR"
-  raw=$(curl -fsS --max-time 10 "$OLLAMA_HOST_URL/api/show" \
-          -H "Authorization: Bearer $OLLAMA_API_KEY" \
-          -d "{\"model\":\"$model\"}" 2>/dev/null) || raw=""
-  CATALOG_RAW="$raw" CATALOG_MODEL="$model" CATALOG_OUT="$out" python3 - <<'PY'
-import json, os
-raw   = os.environ.get("CATALOG_RAW") or ""
-model = os.environ["CATALOG_MODEL"]
-ctx, caps = 128000, []
+# _model_raw <model>  -> echoes raw /api/show JSON for <model>, or empty on failure.
+_model_raw() {
+  local model="$1"
+  curl -fsS --max-time 10 "$OLLAMA_HOST_URL/api/show" \
+    -H "Authorization: Bearer $OLLAMA_API_KEY" \
+    -d "{\"model\":\"$model\"}" 2>/dev/null || echo ""
+}
+
+# _model_metadata <model>  -> echoes parsed JSON with context_window, capabilities, details.
+# Used by _codex_catalogue and _pi_model_dict. Format:
+#   {"context_window": N, "capabilities": [...], "details": {...}}
+_model_metadata() {
+  local model="$1" raw
+  raw=$(_model_raw "$model")
+  MODEL_METADATA_RAW="$raw" python3 - <<'PY'
+import json, os, sys
+raw = os.environ.get("MODEL_METADATA_RAW") or ""
+ctx, caps, details = 128000, [], {}
 try:
     d = json.loads(raw)
     caps = d.get("capabilities") or []
+    details = d.get("details") or {}
     mi = d.get("model_info") or {}
     arch = mi.get("general.architecture")
     key = f"{arch}.context_length" if arch else None
@@ -55,15 +60,63 @@ try:
                     if k.endswith(".context_length") and isinstance(v, int)), ctx)
 except Exception:
     pass
+print(json.dumps({"context_window": ctx, "capabilities": caps, "details": details}))
+PY
+}
+
+# _pi_model_dict <model>  -> echoes JSON dict for pi models.json entry with metadata.
+# Format: {"id": "model", "contextWindow": N, "reasoning": bool, "input": [...], ...}
+_pi_model_dict() {
+  local model="$1" meta
+  meta=$(_model_metadata "$model")
+  PI_META="$meta" PI_MODEL="$model" python3 - <<'PY'
+import json, os
+meta = json.loads(os.environ["PI_META"])
+model = os.environ["PI_MODEL"]
+caps = meta["capabilities"]
+entry = {
+    "id": model,
+    "contextWindow": meta["context_window"],
+    "reasoning": "thinking" in caps,
+    "input": ["text", "image"] if "vision" in caps else ["text"],
+    "maxTokens": 16384,
+}
+if "thinking" in caps:
+    entry["compat"] = {"supportsReasoningEffort": True}
+print(json.dumps(entry))
+PY
+}
+
+# _codex_catalogue <model>  -> writes a Codex model catalogue for <model> derived
+# from /api/show, echoes its path. Silences "Model metadata not found".
+# Falls back to a sane default entry if the fetch fails (still silences it).
+_codex_catalogue() {
+  local model="$1" out="$STATE_DIR/codex-catalogue.json" meta
+  mkdir -p "$STATE_DIR"
+  meta=$(_model_metadata "$model")
+  CATALOGUE_META="$meta" CATALOGUE_MODEL="$model" CATALOGUE_OUT="$out" python3 - <<'PY'
+import json, os
+meta = json.loads(os.environ["CATALOGUE_META"])
+model = os.environ["CATALOGUE_MODEL"]
+caps = meta["capabilities"]
+ctx = meta["context_window"]
+thinks = "thinking" in caps
+levels = ["low", "medium", "high"] if thinks else []
 entry = {
     "slug": model, "display_name": model,
     "context_window": ctx,
     "input_modalities": ["text", "image"] if "vision" in caps else ["text"],
-    "supported_reasoning_levels": ["low", "medium", "high"] if "thinking" in caps else [],
+    "supported_reasoning_levels": [{"effort": l, "description": l.title()} for l in levels],
+    "default_reasoning_level": "low" if thinks else None,
     "supports_parallel_tool_calls": "tools" in caps,
     "supported_in_api": True, "visibility": "list",
+    "shell_type": "default", "priority": 0, "base_instructions": "",
+    "supports_reasoning_summaries": thinks, "default_reasoning_summary": "auto",
+    "support_verbosity": False,
+    "truncation_policy": {"mode": "tokens", "limit": ctx},
+    "experimental_supported_tools": [],
 }
-with open(os.environ["CATALOG_OUT"], "w") as f:
+with open(os.environ["CATALOGUE_OUT"], "w") as f:
     json.dump({"models": [entry]}, f, indent=2)
 PY
   echo "$out"
@@ -84,6 +137,7 @@ _resolve_model() {
   if [ -n "$m" ]; then
     mkdir -p "$STATE_DIR"; printf '%s\n' "$m" > "$STATE_DIR/last-$harness"; MODEL="$m"
   else
+    # shellcheck disable=SC2034  # used by sourcing launchers
     MODEL=$(_pick_model "$harness")
   fi
 }

@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# Point the Claude Desktop app at ollama.com using OLLAMA_API_KEY.
+# Writes Claude's third-party ("3p") gateway profile — the same mechanism
+# `ollama launch claude-desktop` uses — then (re)launches the app.
+#   ollama-claude-app            configure + launch
+#   ollama-claude-app --restore  revert to the usual Claude profile
+# Config files are backed up to <file>.ollama-scripts.bak before first change.
+set -euo pipefail
+source "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/lib.sh"
+
+[ "$(uname -s)" = "Darwin" ] || _die "ollama-claude-app is macOS-only"
+
+MODE="configure"
+[ "${1:-}" = "--restore" ] && MODE="restore"
+
+if [ "$MODE" = "configure" ]; then
+  _require_key
+  # Reject the key early, like ollama does, rather than baking a dead key in.
+  code=$(curl -fsS -o /dev/null -w '%{http_code}' --max-time 15 \
+           https://ollama.com/v1/models -H "Authorization: Bearer $OLLAMA_API_KEY" 2>/dev/null || echo 000)
+  case "$code" in
+    2*) ;;
+    401|403) _die "OLLAMA_API_KEY was rejected; get a key at https://ollama.com/settings/keys";;
+    *) _die "could not verify OLLAMA_API_KEY (ollama.com returned $code)";;
+  esac
+  # Claude Desktop's gateway discovery returns nothing here, so bake in an
+  # explicit model list ("test inference without discovery").
+  MODELS=$(_models)
+fi
+
+MODE="$MODE" OLLAMA_API_KEY="${OLLAMA_API_KEY:-}" MODELS="${MODELS:-}" python3 - <<'PY'
+import json, os, shutil
+
+mode = os.environ["MODE"]
+key  = os.environ.get("OLLAMA_API_KEY", "")
+home = os.path.expanduser("~")
+base = os.path.join(home, "Library", "Application Support")
+
+PROFILE_ID   = "00000000-0000-4000-8000-000000000114"
+PROFILE_NAME = "Ollama"
+GATEWAY_URL  = "https://ollama.com"
+
+normal_cfg  = os.path.join(base, "Claude", "claude_desktop_config.json")
+tp_root     = os.path.join(base, "Claude-3p")
+tp_cfg      = os.path.join(tp_root, "claude_desktop_config.json")
+meta_path   = os.path.join(tp_root, "configLibrary", "_meta.json")
+prof_path   = os.path.join(tp_root, "configLibrary", PROFILE_ID + ".json")
+
+def load(path):
+    try:
+        with open(path) as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except FileNotFoundError:
+        return {}
+
+def save(path, cfg):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    bak = path + ".ollama-scripts.bak"
+    if os.path.exists(path) and not os.path.exists(bak):
+        shutil.copy2(path, bak)          # preserve the pristine original
+    with open(path, "w") as f:
+        json.dump(cfg, f, indent=2)
+        f.write("\n")
+
+def set_deployment(path, value):
+    cfg = load(path)
+    cfg["deploymentMode"] = value
+    save(path, cfg)
+
+if mode == "configure":
+    set_deployment(normal_cfg, "3p")
+    set_deployment(tp_cfg, "3p")
+
+    meta = load(meta_path)
+    meta["appliedId"] = PROFILE_ID
+    entries = [e for e in meta.get("entries", [])
+               if not (isinstance(e, dict) and e.get("id") == PROFILE_ID)]
+    entries.append({"id": PROFILE_ID, "name": PROFILE_NAME})
+    meta["entries"] = entries
+    save(meta_path, meta)
+
+    prof = load(prof_path)
+    prof["inferenceProvider"] = "gateway"
+    prof["inferenceGatewayBaseUrl"] = GATEWAY_URL
+    prof["inferenceGatewayApiKey"] = key
+    prof["inferenceGatewayAuthScheme"] = "bearer"
+    models = [m for m in os.environ.get("MODELS", "").splitlines() if m.strip()]
+    if models:
+        prof["inferenceModels"] = models
+    else:
+        prof.pop("inferenceModels", None)
+    prof["disableDeploymentModeChooser"] = True
+    save(prof_path, prof)
+    print("Claude Desktop profile changed to Ollama Cloud.")
+
+else:  # restore
+    set_deployment(normal_cfg, "1p")
+    set_deployment(tp_cfg, "1p")
+
+    meta = load(meta_path)
+    if meta:
+        if meta.get("appliedId") == PROFILE_ID:
+            meta.pop("appliedId", None)
+        meta["entries"] = [e for e in meta.get("entries", [])
+                           if not (isinstance(e, dict) and e.get("id") == PROFILE_ID)]
+        save(meta_path, meta)
+
+    prof = load(prof_path)
+    if prof:
+        prof["disableDeploymentModeChooser"] = False
+        for k in ("inferenceProvider", "inferenceGatewayBaseUrl",
+                  "inferenceGatewayAuthScheme", "inferenceModels"):
+            prof.pop(k, None)
+        save(prof_path, prof)
+    print("Claude Desktop restored to the usual Claude profile.")
+PY
+
+# Restart Claude so the profile change takes effect.
+if pgrep -f "Claude.app/Contents/MacOS/Claude" >/dev/null 2>&1; then
+  osascript -e 'tell application "Claude" to quit' >/dev/null 2>&1 || true
+  for _ in $(seq 1 30); do
+    pgrep -f "Claude.app/Contents/MacOS/Claude" >/dev/null 2>&1 || break
+    sleep 0.2
+  done
+  sleep 0.5   # let the app fully release before relaunch
+fi
+exec open -a Claude
