@@ -1,0 +1,26 @@
+[tools]
+gum = "latest"          # model chooser; `mise install` fetches it
+
+[tasks.install]
+description = "Symlink the launchers onto PATH (~/.local/bin)"
+run = '''
+mkdir -p ~/.local/bin
+for s in ollama-claude ollama-codex ollama-pi; do
+  ln -sf "$MISE_PROJECT_ROOT/$s" ~/.local/bin/"$s"
+done
+ls -l ~/.local/bin/ollama-*
+echo "Ensure ~/.local/bin is on PATH (fish: fish_add_path ~/.local/bin)"
+'''
+
+[tasks.uninstall]
+description = "Remove the launcher symlinks"
+run = "rm -f ~/.local/bin/ollama-claude ~/.local/bin/ollama-codex ~/.local/bin/ollama-pi"
+
+[tasks.check]
+description = "Verify key + reach the ollama.com API"
+run = '''
+: "${OLLAMA_API_KEY:?set OLLAMA_API_KEY first}"
+command -v gum >/dev/null || echo "warning: gum missing — chooser falls back to plain select"
+curl -fsS https://ollama.com/api/tags -H "Authorization: Bearer $OLLAMA_API_KEY" >/dev/null \
+  && echo "ollama.com API: ok" || { echo "ollama.com API: FAILED (check key)"; exit 1; }
+'''

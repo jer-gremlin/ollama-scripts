@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# Launch OpenAI Codex CLI against ollama.com using OLLAMA_API_KEY.
+set -euo pipefail
+source "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/lib.sh"
+_require_key
+
+_resolve_model codex "$@"
+catalog=$(_codex_catalog "$MODEL")
+
+exec codex \
+  -c "model=\"$MODEL\"" \
+  -c "model_catalog_json=\"$catalog\"" \
+  -c 'model_provider="ollama_cloud"' \
+  -c 'model_providers.ollama_cloud.name="Ollama Cloud"' \
+  -c 'model_providers.ollama_cloud.base_url="https://ollama.com/v1"' \
+  -c 'model_providers.ollama_cloud.env_key="OLLAMA_API_KEY"' \
+  -c 'model_providers.ollama_cloud.wire_api="responses"' \
+  "${REST[@]+"${REST[@]}"}"

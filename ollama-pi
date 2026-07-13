@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Launch pi against ollama.com using OLLAMA_API_KEY.
+set -euo pipefail
+source "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/lib.sh"
+_require_key
+
+_resolve_model pi "$@"
+
+# Upsert an "ollama_cloud" OpenAI-compatible provider in pi's models.json,
+# populated with the current cloud model list. Key is passed at runtime.
+# List captured to a var (no pipe) so a broken pipe can't abort the script.
+PI_MODEL_IDS="$(_models)" \
+PI_MODELS="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/models.json" \
+python3 - <<'PY'
+import json, os
+path = os.environ["PI_MODELS"]
+ids = [l.strip() for l in os.environ["PI_MODEL_IDS"].splitlines() if l.strip()]
+try:
+    with open(path) as f:
+        d = json.load(f)
+except FileNotFoundError:
+    d = {}
+d.setdefault("providers", {})
+d["providers"]["ollama_cloud"] = {
+    "baseUrl": "https://ollama.com/v1",
+    "api": "openai-completions",
+    "apiKey": "ollama",          # overridden at runtime by --api-key
+    "compat": {"supportsDeveloperRole": False, "supportsReasoningEffort": False},
+    "models": [{"id": i} for i in ids],
+}
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w") as f:
+    json.dump(d, f, indent=1)
+PY
+
+exec pi --provider ollama_cloud --api-key "$OLLAMA_API_KEY" --model "$MODEL" "${REST[@]+"${REST[@]}"}"
