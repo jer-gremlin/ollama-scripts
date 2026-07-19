@@ -41,23 +41,49 @@ ollama-claude                       # chooser, then normal claude session
 Same idea for the GUIs, mirroring `ollama launch` but keyed straight to
 ollama.com — no sign-in. **macOS only.**
 
+Unlike the CLIs, desktop apps can't read the shell env, so these must **write
+config files** — persistent, not ephemeral. Every touched file is copied to
+`<file>.ollama-scripts.bak` first, and `ollama-unset.sh` reverts everything.
+
 | Command | App | How |
 |---|---|---|
-| `ollama-codex-app` | Codex desktop | ephemeral `codex app -c …`, touches no files |
+| `ollama-codex-app` | Codex desktop | writes `~/.codex/config.toml` provider (backed up), then restarts Codex |
 | `ollama-claude-app` | Claude Desktop | writes Claude's 3p gateway profile (backed up), then relaunches |
 | `ollama-gui` | Ollama app | launches `Ollama.app` with `OLLAMA_API_KEY` in its env |
 
 ```sh
 ollama-codex-app --model glm-5.2        # picks a model like the CLIs
 ollama-claude-app                       # switch Claude Desktop to Ollama Cloud
-ollama-claude-app --restore             # switch it back
 ollama-gui                              # open the Ollama app with cloud access
 ```
 
-`ollama-claude-app` edits Claude Desktop's config under
-`~/Library/Application Support/Claude{,-3p}/`; each touched file is copied to
-`<file>.ollama-scripts.bak` before the first change, and `--restore` reverts the
-profile.
+### Undo
+
+`ollama-unset.sh` returns Codex, Claude Desktop, and pi to their original
+providers — restoring each config from its `.ollama-scripts.bak` (or stripping
+only what was added if no backup exists) and quitting the apps so they reload
+clean. The CLI wrappers (`ollama-claude`, `ollama-codex`) need no undo; they only
+set env for their own subprocess.
+
+```sh
+ollama-unset.sh                         # revert all app/pi config changes
+```
+
+Per-app reverts also exist: `ollama-codex-app --restore`, `ollama-claude-app --restore`.
+
+## VS Code
+
+The [Ollama VS Code extension](https://marketplace.visualstudio.com/items?itemName=Ollama.ollama)
+supports cloud models natively — no launcher script needed. Install the
+extension, then set two options in VS Code settings (`Cmd+,`):
+
+- `ollama.endpoint` → `https://ollama.com`
+- `ollama.headers` → add an `Authorization` header with value `Bearer <your-key>`
+
+![VS Code settings](./vscode-setup.png)
+
+Open the model picker in VS Code Chat (`Cmd+Shift+M`) and your cloud models
+appear under the **Ollama** section.
 
 ## Adding your harness
 
