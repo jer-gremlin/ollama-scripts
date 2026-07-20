@@ -24,22 +24,32 @@ _restore_bak() {          # <file> -> restore from .bak (and drop it); 0 if done
 _quit_app() { osascript -e "tell application \"$1\" to quit" >/dev/null 2>&1 || true; }
 
 # ---------------------------------------------------------------- Codex desktop
+# Reverts BOTH our provider and `ollama launch`'s, so codex falls back to its
+# own default provider (OpenAI / ChatGPT models).
 CODEX="$HOME/.codex/config.toml"
 if [ -f "$CODEX" ]; then
   echo "Codex:"
   _quit_app Codex
-  if ! _restore_bak "$CODEX"; then
-    CODEX="$CODEX" PROVIDER="$PROVIDER" python3 - <<'PY'
+  _restore_bak "$CODEX" || true    # undo our own edit first, if a backup exists
+  CODEX="$CODEX" python3 - <<'PY'
 import os, re
-p = os.environ["CODEX"]; prov = os.environ["PROVIDER"]
+p = os.environ["CODEX"]
 t = open(p).read()
-t = re.sub(rf'(?ms)^\[model_providers\.{re.escape(prov)}\].*?(?=^\[|\Z)', "", t)
-t = re.sub(rf'(?m)^model_provider = "{re.escape(prov)}"\n', "", t)
-t = re.sub(r'(?m)^model_catalog_json = ".*ollama-scripts.*"\n', "", t)
-open(p, "w").write(t.rstrip("\n") + "\n")
-print("  stripped %s provider from config.toml (no backup found)" % prov)
+# Root keys precede the first table. If the active provider is an ollama one,
+# drop the ollama model overrides so codex uses its built-in default.
+m = re.search(r'(?m)^\[', t); i = m.start() if m else len(t)
+pre, rest = t[:i], t[i:]
+mp = re.search(r'(?m)^model_provider\s*=\s*"([^"]*)"', pre)
+if mp and mp.group(1).startswith("ollama"):
+    for k in ("model", "model_provider", "model_catalog_json", "model_reasoning_effort"):
+        pre = re.sub(rf'(?m)^{k}\s*=.*\n?', "", pre)
+t = pre + rest
+# Remove any ollama-managed provider tables (ollama-launch*, ollama-scripts, ollama_cloud).
+t = re.sub(r'(?ms)^\[model_providers\.ollama[-_][^\]]*\].*?(?=^\[|\Z)', "", t)
+t = re.sub(r'\n{3,}', '\n\n', t).rstrip("\n") + "\n"
+open(p, "w").write(t)
+print("  codex reverted to its default provider")
 PY
-  fi
 fi
 rm -f "$STATE_DIR/codex-catalogue.json" 2>/dev/null || true
 
