@@ -17,7 +17,7 @@ mise run install            # symlink launchers into ~/.local/bin
 ```
 
 `mise run uninstall` removes the symlinks. No mise? `brew install gum` and
-`ln -s "$PWD"/ollama-{claude,codex,pi,codex-app,claude-app,gui} ~/.local/bin/`.
+`ln -s "$PWD"/ollama-{claude,codex,pi,oh-my-cli,codex-app,claude-app,gui} ~/.local/bin/`.
 
 ## Launchers
 
@@ -26,6 +26,7 @@ mise run install            # symlink launchers into ~/.local/bin
 | `ollama-claude` | Claude Code | Anthropic `/v1/messages` (Bearer) |
 | `ollama-codex` | Codex CLI | OpenAI `/v1/responses` |
 | `ollama-pi` | pi | OpenAI `/v1/chat/completions` |
+| `ollama-oh-my-cli` | oh-my-cli | OpenAI `/v1/responses` |
 
 Pick a model three ways (first wins): `--model NAME`, `OLLAMA_MODEL=NAME`, or the
 `gum` chooser (prefilled with your last pick, remembered per-harness in
