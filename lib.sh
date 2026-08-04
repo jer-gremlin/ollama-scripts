@@ -15,6 +15,11 @@ _require_key() {
 _models() {
   mkdir -p "$STATE_DIR"
   local cache="$STATE_DIR/models.cache" out
+  # Use a fresh cache (<=1h old) instead of a slow live fetch on every launch.
+  if [ -s "$cache" ] && [ $(( $(date +%s) - $(stat -f %m "$cache") )) -le 3600 ]; then
+    cat "$cache"
+    return
+  fi
   out=$(curl -fsS --max-time 10 "$OLLAMA_HOST_URL/api/tags" \
           -H "Authorization: Bearer $OLLAMA_API_KEY" 2>/dev/null \
         | python3 -c 'import sys,json;print("\n".join(sorted(m["name"] for m in json.load(sys.stdin).get("models",[]))))' 2>/dev/null)
@@ -87,37 +92,75 @@ print(json.dumps(entry))
 PY
 }
 
-# _codex_catalogue <model>  -> writes a Codex model catalogue for <model> derived
-# from /api/show, echoes its path. Silences "Model metadata not found".
-# Falls back to a sane default entry if the fetch fails (still silences it).
-_codex_catalogue() {
-  local model="$1" out="$STATE_DIR/codex-catalogue.json" meta
+# _codex_catalogue_all <out>  -> writes a Codex model catalogue listing every
+# ollama cloud model so the /model picker shows them all (not just the one
+# launched with). Echoes its path.
+_codex_catalogue_all() {
+  local out="$1"
+  local models; models=$(_models)
   mkdir -p "$STATE_DIR"
-  meta=$(_model_metadata "$model")
-  CATALOGUE_META="$meta" CATALOGUE_MODEL="$model" CATALOGUE_OUT="$out" python3 - <<'PY'
-import json, os
-meta = json.loads(os.environ["CATALOGUE_META"])
-model = os.environ["CATALOGUE_MODEL"]
-caps = meta["capabilities"]
-ctx = meta["context_window"]
-thinks = "thinking" in caps
-levels = ["low", "medium", "high"] if thinks else []
-entry = {
-    "slug": model, "display_name": model,
-    "context_window": ctx,
-    "input_modalities": ["text", "image"] if "vision" in caps else ["text"],
-    "supported_reasoning_levels": [{"effort": l, "description": l.title()} for l in levels],
-    "default_reasoning_level": "low" if thinks else None,
-    "supports_parallel_tool_calls": "tools" in caps,
-    "supported_in_api": True, "visibility": "list",
-    "shell_type": "default", "priority": 0, "base_instructions": "",
-    "supports_reasoning_summaries": thinks, "default_reasoning_summary": "auto",
-    "support_verbosity": False,
-    "truncation_policy": {"mode": "tokens", "limit": ctx},
-    "experimental_supported_tools": [],
-}
+  # Reuse the previous catalogue when the model list is unchanged, so the
+  # launch isn't slowed by one /api/show call per model every time.
+  if [ -f "$out" ]; then
+    if CATALOGUE_MODELS="$models" OUT="$out" python3 -c 'import json,os,sys
+d=json.load(open(os.environ["OUT"]))
+cur=sorted(m["slug"] for m in d["models"])
+want=sorted(x for x in os.environ["CATALOGUE_MODELS"].splitlines() if x.strip())
+sys.exit(0 if cur==want else 1)'; then
+      echo "$out"; return
+    fi
+  fi
+  CATALOGUE_MODELS="$models" CATALOGUE_OUT="$out" python3 - <<'PY'
+import json, os, sys, urllib.request, urllib.error
+
+def meta(model):
+    req = urllib.request.Request(
+        f"https://ollama.com/api/show",
+        data=json.dumps({"model": model}).encode(),
+        headers={"Authorization": f"Bearer {os.environ['OLLAMA_API_KEY']}"},
+        method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.load(r)
+    except urllib.error.URLError:
+        return {}
+    caps = d.get("capabilities") or []
+    mi = d.get("model_info") or {}
+    arch = mi.get("general.architecture")
+    ctx = 128000
+    key = f"{arch}.context_length" if arch else None
+    if isinstance(mi.get(key), int):
+        ctx = mi[key]
+    else:
+        ctx = next((v for k, v in mi.items()
+                    if k.endswith(".context_length") and isinstance(v, int)), ctx)
+    return {"ctx": ctx, "caps": caps}
+
+entries = []
+for model in os.environ["CATALOGUE_MODELS"].splitlines():
+    m = model.strip()
+    if not m:
+        continue
+    d = meta(m)
+    caps = d.get("caps", [])
+    thinks = "thinking" in caps
+    levels = ["low", "medium", "high"] if thinks else []
+    entries.append({
+        "slug": m, "display_name": m,
+        "context_window": d.get("ctx", 128000),
+        "input_modalities": ["text", "image"] if "vision" in caps else ["text"],
+        "supported_reasoning_levels": [{"effort": l, "description": l.title()} for l in levels],
+        "default_reasoning_level": "low" if thinks else None,
+        "supports_parallel_tool_calls": "tools" in caps,
+        "supported_in_api": True, "visibility": "list",
+        "shell_type": "default", "priority": 0, "base_instructions": "",
+        "supports_reasoning_summaries": thinks, "default_reasoning_summary": "auto",
+        "support_verbosity": False,
+        "truncation_policy": {"mode": "tokens", "limit": d.get("ctx", 128000)},
+        "experimental_supported_tools": [],
+    })
 with open(os.environ["CATALOGUE_OUT"], "w") as f:
-    json.dump({"models": [entry]}, f, indent=2)
+    json.dump({"models": entries}, f, indent=2)
 PY
   echo "$out"
 }

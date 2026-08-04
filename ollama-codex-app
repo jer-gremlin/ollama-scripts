@@ -22,7 +22,7 @@ if [ "${1:-}" = "--restore" ]; then
 else
   _require_key
   _resolve_model codex "$@"
-  catalogue=$(_codex_catalogue "$MODEL")
+  catalogue=$(_codex_catalogue_all "$STATE_DIR/codex-catalogue.json")
 
   mkdir -p "$HOME/.codex"
   [ -f "$CONFIG" ] && [ ! -f "$BAK" ] && cp "$CONFIG" "$BAK"   # preserve original

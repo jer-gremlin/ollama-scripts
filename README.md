@@ -57,6 +57,11 @@ ollama-claude-app                       # switch Claude Desktop to Ollama Cloud
 ollama-gui                              # open the Ollama app with cloud access
 ```
 
+Because the Codex launchers write a model catalogue covering **all** your ollama
+cloud models, you can switch mid-session with `/model` inside Codex instead of
+restarting the harness. Launching still picks one default (`--model`, `OLLAMA_MODEL`,
+or the chooser), but the picker lists everything.
+
 ### Undo
 
 `ollama-unset.sh` returns Codex, Claude Desktop, and pi to their original
