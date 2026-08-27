@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Launch oh-my-cli's Electron desktop shell against ollama.com.
+# The GUI reads the same env config as the CLI, so env pumping is enough.
+set -euo pipefail
+source "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/lib.sh"
+_require_key
+
+DIR="${OH_MY_CLI_DIR:-$HOME/Documents/oh-my-cli}"
+[ -d "$DIR" ] || _die "oh-my-cli repo not found at $DIR (set OH_MY_CLI_DIR)"
+
+_resolve_model oh-my-cli "$@"
+
+# Build once if the desktop bundle is missing (first checkout).
+if [ ! -f "$DIR/dist/desktop/main.js" ]; then
+  echo "oh-my-cli desktop not built — running npm run build" >&2
+  (cd "$DIR" && npm run build)
+fi
+
+export OPENAI_BASE_URL="$OLLAMA_HOST_URL/v1"
+export OPENAI_API_KEY="$OLLAMA_API_KEY"
+export OPENAI_MODEL="$MODEL"
+
+cd "$DIR"
+exec "$DIR/node_modules/.bin/electron" . "${REST[@]+"${REST[@]}"}"

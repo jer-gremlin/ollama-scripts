@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Launch the Hermes agent TUI against ollama.com using OLLAMA_API_KEY.
+# Hermes has a first-class "ollama-cloud" provider (default https://ollama.com/v1),
+# so env-pumping the key is all the wiring needed.
+set -euo pipefail
+source "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/lib.sh"
+_require_key
+
+command -v hermes >/dev/null 2>&1 || _die "hermes not found on PATH (curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash)"
+
+_resolve_model hermes "$@"
+
+export OLLAMA_API_KEY
+export OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-https://ollama.com/v1}"
+
+exec hermes --tui --provider ollama-cloud --model "$MODEL" "${REST[@]+"${REST[@]}"}"
