@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Launch the Hermes agent TUI against the unsloth server (:18888 remote /
+# :8888 local) via its ollama-cloud provider, repointed at the server.
+set -euo pipefail
+DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+source "$DIR/lib.sh"
+source "$DIR/unsloth-lib.sh"
+
+command -v hermes >/dev/null 2>&1 || _die "hermes not found on PATH (curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash)"
+
+_us_base_url
+_resolve_model unsloth-hermes "$@"
+
+# Auth-aware: bearer servers get $US_KEY; open ones reject every Bearer, which
+# hermes insists on — warn instead of a cryptic credential error.
+if [ -n "${US_KEY:-}" ]; then export OLLAMA_API_KEY="$US_KEY"; else
+  export OLLAMA_API_KEY="none"
+  echo "unsloth: warn: $US_URL rejects Authorization headers and hermes always sends one — expect credential errors (pick a key server or give it a valid key)" >&2
+fi
+export OLLAMA_BASE_URL="$US_URL/v1"
+
+exec hermes --tui --provider ollama-cloud --model "$MODEL" "${REST[@]+"${REST[@]}"}"

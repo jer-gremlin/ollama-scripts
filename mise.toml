@@ -5,7 +5,7 @@ gum = "latest" # model chooser; `mise install` fetches it
 description = "Symlink the launchers onto PATH (~/.local/bin)"
 run = '''
 mkdir -p ~/.local/bin
-for s in ollama-claude ollama-codex ollama-pi ollama-hermes ollama-oh-my-cli ollama-oh-my-cli-app ollama-codex-app ollama-claude-app ollama-gui ollama-unset.sh; do
+for s in ollama-claude ollama-codex ollama-pi ollama-hermes ollama-oh-my-cli ollama-oh-my-cli-app ollama-codex-app ollama-claude-app ollama-gui ollama-unset.sh unsloth-claude unsloth-codex unsloth-pi unsloth-hermes unsloth-oh-my-cli unsloth-oh-my-cli-app; do
   ln -sf "$MISE_PROJECT_ROOT/$s" ~/.local/bin/"$s"
 done
 ls -l ~/.local/bin/ollama-*
@@ -14,7 +14,7 @@ echo "Ensure ~/.local/bin is on PATH (fish: fish_add_path ~/.local/bin)"
 
 [tasks.uninstall]
 description = "Remove the launcher symlinks"
-run = "rm -f ~/.local/bin/ollama-claude ~/.local/bin/ollama-codex ~/.local/bin/ollama-pi ~/.local/bin/ollama-hermes ~/.local/bin/ollama-oh-my-cli ~/.local/bin/ollama-oh-my-cli-app ~/.local/bin/ollama-codex-app ~/.local/bin/ollama-claude-app ~/.local/bin/ollama-gui ~/.local/bin/ollama-unset.sh"
+run = "rm -f ~/.local/bin/ollama-claude ~/.local/bin/ollama-codex ~/.local/bin/ollama-pi ~/.local/bin/ollama-hermes ~/.local/bin/ollama-oh-my-cli ~/.local/bin/ollama-oh-my-cli-app ~/.local/bin/ollama-codex-app ~/.local/bin/ollama-claude-app ~/.local/bin/ollama-gui ~/.local/bin/ollama-unset.sh ~/.local/bin/unsloth-claude ~/.local/bin/unsloth-codex ~/.local/bin/unsloth-pi ~/.local/bin/unsloth-hermes ~/.local/bin/unsloth-oh-my-cli ~/.local/bin/unsloth-oh-my-cli-app"
 
 [tasks.check]
 description = "Verify key + reach the ollama.com API"

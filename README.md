@@ -29,6 +29,7 @@ mise run install            # symlink launchers into ~/.local/bin
 | `ollama-hermes` | Hermes agent TUI | OpenAI `/v1/chat/completions` (ollama-cloud) |
 | `ollama-oh-my-cli` | oh-my-cli | OpenAI `/v1/responses` |
 | `ollama-oh-my-cli-app` | oh-my-cli Desktop | Electron shell, env-pumped to ollama.com |
+| `unsloth-*` | all of the above CLIs | same harnesses at your unsloth server (`:18888`/`:8888`) — see [Unsloth variants](#unsloth-variants) |
 
 Pick a model three ways (first wins): `--model NAME`, `OLLAMA_MODEL=NAME`, or the
 `gum` chooser (prefilled with your last pick, remembered per-harness in
@@ -38,6 +39,69 @@ Pick a model three ways (first wins): `--model NAME`, `OLLAMA_MODEL=NAME`, or th
 ollama-codex --model qwen3-coder:480b exec "fix the failing test"
 ollama-claude                       # chooser, then normal claude session
 ```
+
+## Unsloth variants
+
+Every CLI launcher above has an `unsloth-*` twin that points at your Unsloth
+Studio servers instead of ollama.com: `unsloth-claude`, `unsloth-codex`,
+`unsloth-pi`, `unsloth-hermes`, `unsloth-oh-my-cli`, `unsloth-oh-my-cli-app`,
+plus a source-me `unsloth-env.sh` (mirrors `ollama-env.sh`).
+
+Server discovery (first match wins):
+
+1. `UNSLOTH_BASE_URL` — explicit, e.g. `https://gpu-box.lan:18888`
+1. `:18888` — usually the remote unsloth machine, ssh-tunnelled to localhost
+1. `:8888` — usually the local unsloth server
+
+When **more than one** server is up you get an fzf-style chooser (server lines
+look like `http://127.0.0.1:18888  key UNSLOTH_BIG_GPU · 16 models`); your last
+pick is prefilled and auto-accepted, clear the query to switch. One server up
+→ no question.
+
+### Keys
+
+Auth is probed per server, not assumed — keys are tried in order:
+
+1. `UNSLOTH_API_KEY` (e.g. the local server's key)
+1. `UNSLOTH_BIG_GPU` (e.g. the remote box's key)
+1. any other exported `UNSLOTH_*KEY*` variable
+
+A server that accepts a key runs in `bearer` mode and every client sends that
+key; if none matches but the server answers anyway, it runs in `open` mode and
+clients send **no** Authorization header (these servers 401 any Bearer they
+don't know). Claude is special: it authenticates via `ANTHROPIC_API_KEY`
+(x-api-key), which the unsloth servers ignore — so it works against both.
+Codex omits its auth entirely on open servers; `pi`, `hermes` and `oh-my-cli`
+can't send requests without a Bearer, so on open servers the launcher warns.
+The chosen server + key are cached for an hour in `~/.config/ollama-scripts/`.
+
+```sh
+set -gx UNSLOTH_API_KEY   sk-unsloth-…      # :8888
+set -gx UNSLOTH_BIG_GPU   sk-unsloth-…      # :18888
+```
+
+Model metadata (quant, context length, loaded state) is read straight from the
+server's `/v1/models`, so the chooser shows it:
+
+```
+unsloth/Qwen3.8-27B-GGUF   UD-Q4_K_XL · 74k ctx · loaded
+```
+
+The model picker is fzf-style: `fzf` if installed, else `gum filter`, else a
+plain `select`. Skip it with `--model NAME` or `UNSLOTH_MODEL=NAME`; the last
+pick is remembered per harness, same as the ollama launchers.
+
+```sh
+unsloth-codex --model unsloth/Qwen3.8-27B-GGUF exec "fix the failing test"
+UNSLOTH_BASE_URL=http://127.0.0.1:8888 unsloth-pi   # pin a server
+```
+
+Test matrix, both servers, real completions: claude, codex, pi, hermes and
+oh-my-cli all answer `ok` against `:8888` (key `UNSLOTH_API_KEY`) and `:18888`
+(key `UNSLOTH_BIG_GPU`).
+
+No desktop-app twins (`*-app`, `gui`) — those exist to punch ollama.com
+credentials into macOS app configs, which a plain HTTP server doesn't need.
 
 ## Desktop apps
 

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Launch oh-my-cli against the unsloth server (:18888 remote / :8888 local).
+set -euo pipefail
+DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+source "$DIR/lib.sh"
+source "$DIR/unsloth-lib.sh"
+
+_us_base_url
+_resolve_model unsloth-oh-my-cli "$@"
+
+export OPENAI_BASE_URL="$US_URL/v1"
+# Auth-aware: bearer servers get $US_KEY; open ones reject every Bearer, which
+# oh-my-cli always sends once a credential is set — warn instead of a cryptic 401.
+if [ -n "${US_KEY:-}" ]; then export OPENAI_API_KEY="$US_KEY"; else
+  export OPENAI_API_KEY="unsloth"
+  echo "unsloth: warn: $US_URL rejects Authorization headers and oh-my-cli always sends one — expect 401s (pick a key server or give it a valid key)" >&2
+fi
+export OPENAI_MODEL="$MODEL"
+
+exec oh-my-cli "${REST[@]+"${REST[@]}"}"
