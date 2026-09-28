@@ -5,9 +5,9 @@ set -euo pipefail
 
 # --- helpers ----------------------------------------------------------------
 
-_ok()   { printf '  \033[32m✓\033[0m %s\n' "$*"; }
+_ok()   { printf '  \033[32m \033[0m %s\n' "$*"; }
 _skip() { printf '  \033[33m-\033[0m %s\n' "$*"; }
-_fail() { printf '  \033[31m✗\033[0m %s\n' "$*"; }
+_fail() { printf '  \033[31m \033[0m %s\n' "$*"; }
 
 # _update <name> <cmd...>  -> run a tool's own updater, report result.
 _update() {

@@ -3,7 +3,7 @@
 Harnesses warn like:
 
 ```
-⚠ Model metadata for `gpt-oss:120b` not found. Defaulting to fallback metadata;
+  Model metadata for `gpt-oss:120b` not found. Defaulting to fallback metadata;
   this can degrade performance and cause issues.
 ```
 

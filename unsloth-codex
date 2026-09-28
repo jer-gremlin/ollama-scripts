@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Launch OpenAI Codex CLI against the unsloth server (:18888 remote / :8888
+# local). The server serves /v1/responses, so the "responses" wire works.
+set -euo pipefail
+DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+source "$DIR/lib.sh"
+source "$DIR/unsloth-lib.sh"
+
+_us_base_url
+_resolve_model unsloth-codex "$@"
+catalogue=$(_codex_catalogue_all "$STATE_DIR/unsloth-codex-catalogue.json")
+
+# Auth-aware: bearer servers reference $US_KEY_VAR (the env var that
+# authenticated); open servers must see no auth, so env_key is omitted
+# (codex then sends no Authorization header).
+codex_args=(
+  -c "model=\"$MODEL\""
+  -c "model_catalog_json=\"$catalogue\""
+  -c 'model_provider="unsloth"'
+  -c 'model_providers.unsloth.name="Unsloth"'
+  -c "model_providers.unsloth.base_url=\"$US_URL/v1\""
+  -c 'model_providers.unsloth.wire_api="responses"'
+)
+if [ -n "${US_KEY:-}" ]; then
+  # The key value came from the environment, so it is already exported;
+  # explicit export keeps the intent clear.
+  # shellcheck disable=SC2163
+  export "$US_KEY_VAR"
+  codex_args+=("-c" "model_providers.unsloth.env_key=\"$US_KEY_VAR\"")
+fi
+
+exec codex "${codex_args[@]}" "${REST[@]+"${REST[@]}"}"

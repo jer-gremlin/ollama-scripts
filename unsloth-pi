@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Launch pi against the unsloth server (:18888 remote / :8888 local).
+set -euo pipefail
+DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+source "$DIR/lib.sh"
+source "$DIR/unsloth-lib.sh"
+
+_us_base_url
+_resolve_model unsloth-pi "$@"
+
+# Metadata for the selected model (context window, quant, capabilities) goes
+# into pi's models.json so contextWindow/reasoning are correct.
+PI_MODEL_ENTRY=$(_pi_model_dict "$MODEL")
+
+# Auth-aware: bearer servers get $US_KEY; open ones reject every Bearer, which
+# pi always sends once a key is set — warn instead of a cryptic 401.
+if [ -n "${US_KEY:-}" ]; then US_KEY_RUNTIME="$US_KEY"; else
+  US_KEY_RUNTIME="unsloth"
+  echo "unsloth: warn: $US_URL rejects Authorization headers and pi always sends one — expect 401s (pick a key server or give it a valid key)" >&2
+fi
+
+# Upsert an "unsloth" OpenAI-compatible provider in pi's models.json.
+PI_MODELS="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/models.json" \
+PI_PROVIDER="unsloth" \
+PI_BASE_URL="$US_URL/v1" \
+PI_API_KEY="$US_KEY_RUNTIME" \
+PI_MODEL_ENTRY="$PI_MODEL_ENTRY" \
+PI_MODEL="$MODEL" \
+PI_MODEL_IDS="$(_models)" \
+python3 - <<'PY'
+import json, os
+path = os.environ["PI_MODELS"]
+entry = json.loads(os.environ["PI_MODEL_ENTRY"])
+selected = os.environ["PI_MODEL"]
+all_ids = [l.strip() for l in os.environ["PI_MODEL_IDS"].splitlines() if l.strip()]
+try:
+    with open(path) as f:
+        d = json.load(f)
+except FileNotFoundError:
+    d = {}
+d.setdefault("providers", {})
+# Selected model with full metadata, others as bare ids.
+models = []
+for mid in all_ids:
+    models.append(entry) if mid == selected else models.append({"id": mid})
+d["providers"][os.environ["PI_PROVIDER"]] = {
+    "baseUrl": os.environ["PI_BASE_URL"],
+    "api": "openai-completions",
+    "apiKey": os.environ["PI_API_KEY"],   # overridden at runtime by --api-key
+    "compat": {"supportsDeveloperRole": False,
+               "supportsReasoningEffort": entry.get("reasoning", False)},
+    "models": models,
+}
+os.makedirs(os.path.dirname(path), exist_ok=True)
+with open(path, "w") as f:
+    json.dump(d, f, indent=1)
+PY
+
+exec pi --provider unsloth --api-key "$US_KEY_RUNTIME" --model "$MODEL" "${REST[@]+"${REST[@]}"}"

@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# Launch Claude Code against the unsloth server (:18888 remote / :8888 local).
+# Both unsloth server flavours ignore the x-api-key header, so claude
+# authenticates via ANTHROPIC_API_KEY (x-api-key) — never a Bearer, which open
+# servers 401 and bearer servers only take from the real key anyway.
+set -euo pipefail
+DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+source "$DIR/lib.sh"
+source "$DIR/unsloth-lib.sh"
+
+_us_base_url
+_resolve_model unsloth-claude "$@"
+
+export ANTHROPIC_BASE_URL="$US_URL"
+unset ANTHROPIC_AUTH_TOKEN 2>/dev/null || true
+export ANTHROPIC_API_KEY="${US_KEY:-unsloth}"   # sent as x-api-key; servers ignore it
+export ANTHROPIC_MODEL="$MODEL"
+export ANTHROPIC_SMALL_FAST_MODEL="${UNSLOTH_SMALL_MODEL:-$MODEL}"
+# Real context window from /v1/models, so claude doesn't assume 200k.
+US_CTX=$(_model_metadata "$MODEL" \
+  | python3 -c 'import json,sys;print(json.load(sys.stdin)["context_window"])')
+export CLAUDE_CODE_MAX_CONTEXT_TOKENS="$US_CTX"
+
+exec claude "${REST[@]+"${REST[@]}"}"

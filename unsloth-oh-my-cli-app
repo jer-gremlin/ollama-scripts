@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Launch oh-my-cli's Electron desktop shell against the unsloth server.
+# The GUI reads the same env config as the CLI, so env pumping is enough.
+set -euo pipefail
+DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+source "$DIR/lib.sh"
+source "$DIR/unsloth-lib.sh"
+
+US_DIR="${OH_MY_CLI_DIR:-$HOME/Documents/oh-my-cli}"
+[ -d "$US_DIR" ] || _die "oh-my-cli repo not found at $US_DIR (set OH_MY_CLI_DIR)"
+
+_us_base_url
+_resolve_model unsloth-oh-my-cli "$@"
+
+# Build once if the desktop bundle is missing (first checkout).
+if [ ! -f "$US_DIR/dist/desktop/main.js" ]; then
+  echo "oh-my-cli desktop not built — running npm run build" >&2
+  (cd "$US_DIR" && npm run build)
+fi
+
+export OPENAI_BASE_URL="$US_URL/v1"
+# Auth-aware: bearer servers get $US_KEY; open ones reject every Bearer, which
+# oh-my-cli always sends once a credential is set — warn instead of a cryptic 401.
+if [ -n "${US_KEY:-}" ]; then export OPENAI_API_KEY="$US_KEY"; else
+  export OPENAI_API_KEY="unsloth"
+  echo "unsloth: warn: $US_URL rejects Authorization headers and oh-my-cli always sends one — expect 401s (pick a key server or give it a valid key)" >&2
+fi
+export OPENAI_MODEL="$MODEL"
+
+cd "$US_DIR"
+exec "$US_DIR/node_modules/.bin/electron" . "${REST[@]+"${REST[@]}"}"
