@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Headless Hermes install: silent, no prompts, bare minimum, local only.
+#
+#   - upstream installer runs --non-interactive (no setup wizard, no gateway
+#     setup), plus --skip-browser --skip-computer-use for the small payload
+#   - all chatter goes to a log; stdout stays quiet unless something breaks
+#   - config is hardened for local-only use: telemetry off, no update checks,
+#     no borrowing of other agents' logins
+#   - Nous Portal is never touched (that lives behind `hermes portal` /
+#     `hermes setup`, both skipped here)
+#
+# Options:
+#   --model NAME   default model to write into hermes' config
+#   --check        only apply the config hardening (no download, no install)
+#   --keep-gateway leave an installed messaging gateway service alone (default
+#                  is: stop it and remove its launchd/systemd unit)
+set -euo pipefail
+
+INSTALLER_URL="${HERMES_INSTALLER_URL:-https://hermes-agent.nousresearch.com/install.sh}"
+LOG_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/hermes-install"
+MODEL_ARG=""
+CHECK=false
+GATEWAY=false
+
+_die() { echo "hermes-install: $*" >&2; exit 1; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --check) CHECK=true; shift ;;
+    --keep-gateway) GATEWAY=true; shift ;;
+    --model)
+      MODEL_ARG="${2:-}"
+      [ -n "$MODEL_ARG" ] || _die "--model needs a value"
+      shift 2 ;;
+    -h|--help) awk 'NR==1{next} /^#/{sub(/^# ?/,""); print; next} {exit}' "$0"; exit 0 ;;
+    *) echo "hermes-install: unknown option: $1" >&2; exit 2 ;;
+  esac
+done
+
+# _set <key> <want>  -> write a config key only when it differs, quietly.
+_set() {
+  local key="$1" want="$2" have=""
+  if command -v hermes >/dev/null 2>&1; then
+    have=$(hermes config get "$key" 2>/dev/null || true)
+    [ "${have:-}" = "$want" ] && return 0
+  fi
+  hermes config set "$key" "$want" >/dev/null 2>&1 \
+    || echo "hermes-install: warn: could not set $key=$want" >&2
+}
+
+harden() {
+  command -v hermes >/dev/null 2>&1 || return 0
+  _set telemetry.shared_metrics.enabled false
+  _set telemetry.shared_metrics.send false
+  _set updates.check false
+  _set auth.adopt_external_logins false
+  [ -n "$MODEL_ARG" ] && _set model.default "$MODEL_ARG"
+  return 0
+}
+
+# "no messages": no gateway daemon, no platform sockets listening locally.
+kill_gateway() {
+  command -v hermes >/dev/null 2>&1 || return 0
+  hermes gateway stop </dev/null >/dev/null 2>&1 || true
+  hermes gateway uninstall </dev/null >/dev/null 2>&1 || true
+}
+
+if [ "$CHECK" = true ]; then
+  harden
+  [ "$GATEWAY" = true ] || kill_gateway
+  echo "hermes-install: config hardened"
+  exit 0
+fi
+
+mkdir -p "$LOG_DIR"
+LOG="$LOG_DIR/install.log"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+curl -fsSL "$INSTALLER_URL" -o "$TMP/install.sh" || _die "could not fetch installer"
+
+# NO_COLOR keeps ANSI out of the log; non-tty stdout makes the upstream
+# installer use its plain CI stream.
+if ! (cd "$TMP" && NO_COLOR=1 bash install.sh --non-interactive \
+        --skip-browser --skip-computer-use) >"$LOG" 2>&1; then
+  echo "hermes-install: install failed — last 30 log lines:" >&2
+  tail -n 30 "$LOG" >&2
+  _die "full log: $LOG"
+fi
+
+export PATH="$HOME/.local/bin:$PATH"
+harden
+[ "$GATEWAY" = true ] || kill_gateway
+
+echo "hermes-install: done (log: $LOG)"

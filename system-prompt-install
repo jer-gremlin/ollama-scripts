@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Install the house style prompt into every agent harness this repo drives.
+#
+# One canonical file (system-prompt.md, next to this script) is written into
+# each harness's own instruction seam:
+#
+#   pi          ~/.pi/agent/APPEND_SYSTEM.md    (appended to pi's system prompt)
+#   oh-my-cli   ~/QWEN.md                       (ancestor instruction file; QWEN.md
+#                                                 beats AGENTS.md, and pi/codex/claude
+#                                                 ignore the name here)
+#   claude      ~/.claude/CLAUDE.md             (between ollama-scripts markers)
+#   codex       ~/.codex/AGENTS.md              (global user instructions, marked)
+#   hermes      ~/.hermes/SOUL.md               (persona file, between markers;
+#                                                 `agent.system_prompt` is unusable
+#                                                 here — its setter parses the value
+#                                                 as YAML and markdown confuses it)
+#
+# Idempotent: marker blocks are replaced in place; whole-file targets are only
+# rewritten when the content differs. Every touched file is backed up once to
+# <file>.system-prompt.bak.
+#
+#   system-prompt-install            install everywhere
+#   system-prompt-install --status   report what would change, write nothing
+set -euo pipefail
+DIR="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+
+SRC="${SYSTEM_PROMPT_FILE:-$DIR/system-prompt.md}"
+[ -s "$SRC" ] || { echo "system-prompt-install: no prompt at $SRC" >&2; exit 1; }
+
+CHECK=false
+[ "${1:-}" = "--status" ] && CHECK=true
+
+MARK_BEGIN='<!-- ollama-scripts:style BEGIN — from system-prompt.md, do not edit here -->'
+MARK_END='<!-- ollama-scripts:style END -->'
+
+# _sync <file|block> <path>  — file: target becomes the prompt verbatim;
+# block: prompt lives between the markers, old block replaced.
+_sync() {
+  SRC="$SRC" MARK_BEGIN="$MARK_BEGIN" MARK_END="$MARK_END" CHECK="$CHECK" \
+    python3 - "$1" "$2" <<'PY'
+import os, re, shutil, sys
+
+mode, path = sys.argv[1], sys.argv[2]
+check = os.environ["CHECK"] == "true"
+body = open(os.environ["SRC"]).read().strip()
+
+if mode == "file":
+    new = body + "\n"
+else:
+    begin, end = os.environ["MARK_BEGIN"], os.environ["MARK_END"]
+    block = f"{begin}\n{body}\n{end}\n"
+    try:
+        text = open(path).read()
+    except FileNotFoundError:
+        text = ""
+    if begin in text:
+        pat = re.compile(re.escape(begin) + ".*?" + re.escape(end) + "\n?", re.DOTALL)
+        new = pat.sub(block, text)
+    else:
+        new = text.rstrip("\n") + ("\n\n" if text.strip() else "") + block
+
+def note(msg):
+    print(f"system-prompt-install: {msg}")
+
+try:
+    current = open(path).read()
+except FileNotFoundError:
+    current = None
+
+if current == new:
+    note(f"ok   {path}")
+elif check:
+    note(f"would write {path}")
+else:
+    if current is not None:
+        bak = path + ".system-prompt.bak"
+        if not os.path.exists(bak):
+            shutil.copy2(path, bak)
+    parent = os.path.dirname(path) or "."
+    os.makedirs(parent, exist_ok=True)
+    with open(path, "w") as f:
+        f.write(new)
+    note(f"wrote {path}")
+PY
+}
+
+_sync file "$HOME/.pi/agent/APPEND_SYSTEM.md"
+_sync file "$HOME/QWEN.md"
+_sync block "$HOME/.claude/CLAUDE.md"
+_sync block "$HOME/.codex/AGENTS.md"
+
+# hermes only has a file seam (SOUL.md); its config setter refuses markdown.
+if [ -d "$HOME/.hermes" ]; then
+  _sync block "$HOME/.hermes/SOUL.md"
+else
+  printf 'system-prompt-install: skip hermes (~/.hermes missing)\n'
+fi
+
+if [ "$CHECK" != true ]; then
+  printf 'system-prompt-install: done — restart running agent sessions to pick it up\n'
+fi

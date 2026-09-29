@@ -55,8 +55,8 @@ Server discovery (first match wins):
 
 When **more than one** server is up you get an fzf-style chooser (server lines
 look like `http://127.0.0.1:18888  key UNSLOTH_BIG_GPU · 16 models`); your last
-pick is prefilled and auto-accepted, clear the query to switch. One server up
-→ no question.
+pick is prefilled as the query — enter accepts it, type to switch. One server
+up → no question.
 
 ### Keys
 
@@ -89,7 +89,8 @@ unsloth/Qwen3.8-27B-GGUF   UD-Q4_K_XL · 74k ctx · loaded
 
 The model picker is fzf-style: `fzf` if installed, else `gum filter`, else a
 plain `select`. Skip it with `--model NAME` or `UNSLOTH_MODEL=NAME`; the last
-pick is remembered per harness, same as the ollama launchers.
+pick is remembered per harness, same as the ollama launchers, and prefilled as
+the query — but the chooser always asks: enter accepts it, type to switch.
 
 ```sh
 unsloth-codex --model unsloth/Qwen3.8-27B-GGUF exec "fix the failing test"

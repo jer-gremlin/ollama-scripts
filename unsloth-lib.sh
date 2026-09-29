@@ -105,7 +105,7 @@ _us_base_url() {
     local header="unsloth server  (last: ${last##*/})"
     if command -v fzf >/dev/null 2>&1; then
       chosen=$(printf '%s' "$lines" | fzf --height=10 --reverse --border \
-        --prompt="$header > " --query="$last" --select-1) || exit 130
+        --prompt="$header > " --query="$last") || exit 130
     elif command -v gum >/dev/null 2>&1; then
       chosen=$(printf '%s' "$lines" | gum filter --height=10 --value="$last" \
         --placeholder="type to filter…" --header="$header") || exit 130
@@ -179,7 +179,7 @@ _pick_model() {
   local header="unsloth-$harness model  (last: ${last:-none})"
   if command -v fzf >/dev/null 2>&1; then
     chosen=$(_models_annotated | fzf --height=25 --reverse --border \
-      --prompt="$header > " --query="$last" --select-1) || exit 130
+      --prompt="$header > " --query="$last") || exit 130
   elif command -v gum >/dev/null 2>&1; then
     chosen=$(_models_annotated | gum filter --height=20 --value="$last" \
       --placeholder="type to filter…" --header="$header") || exit 130

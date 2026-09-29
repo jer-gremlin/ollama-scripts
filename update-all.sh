@@ -2,6 +2,7 @@
 # Update every coding agent / tool in one go.
 #   codex, claude, ollama, pi, hermes, opencode
 set -euo pipefail
+DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" && pwd)"
 
 # --- helpers ----------------------------------------------------------------
 
@@ -32,8 +33,9 @@ _update opencode opencode upgrade
 
 _update unsloth unsloth studio update
 
-# hermes: self-updating install script (idempotent).
-_update hermes  bash -c 'curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash'
+# hermes: headless installer (idempotent); never touches Nous Portal, keeps
+# the messaging gateway off by default. See ./hermes-install --help.
+_update hermes  "$DIR/hermes-install"
 
 # ollama: installed via the Ollama.app, which auto-updates itself in the
 # background — nothing to run here, just report the version.
