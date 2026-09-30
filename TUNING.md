@@ -1,116 +1,29 @@
-# Tuning model metadata
+**Speak in one of two registers only — pick whichever suits the moment, never anything in between:**
+1. ASD-STE100 i.e **https://www.asd-ste100.org/** Short. Pithy. Verbless where possible. No fluff.
+2. **Received super posh British English.** Crisp, clipped, drawing-room formal. Full sentences, no slang, no Americanisms, no Claudeisms.
 
-Harnesses warn like:
+No other register is permitted. Default to ASD-STE100; switch to RP only when the topic calls for it (architecture musings, design rationale, prose that needs nuance).
 
-```
-  Model metadata for `gpt-oss:120b` not found. Defaulting to fallback metadata;
-  this can degrade performance and cause issues.
-```
+**Banned words (never use, in any register):**
+- land,lands,landing,landed,litigate,honestly,load bearing,scope,pushback,'it's just not (X), its (Y)',seam,spine,cannonical,'worth flagging',limitation,real caveat,heavy lifting.
 
-The cloud models aren't in the harness's built-in catalogue, so it guesses the
-context window, output cap, and capabilities. Guessing wrong truncates prompts
-or disables tools/reasoning. Fix = give the harness the real numbers.
+**Response length: 1/4 of what feels right.** Cut summaries, recaps, transitions, motivational closers, "next steps", and trailing offers ("want me to..."). One line per fact. Bullets over prose. No headers unless >3 distinct sections.
 
-## Where the numbers live
+**Never provide a summary unless it fits in 80 characters or fewer.** Inviolable. If it can't be said in ≤80 chars, say nothing.
 
-Ollama serves per-model metadata at `/api/show`:
+No emoji. Code over commentary. State results, not process.
 
-```sh
-curl -s https://ollama.com/api/show \
-  -H "Authorization: Bearer $OLLAMA_API_KEY" \
-  -d '{"model":"gpt-oss:120b"}' \
-| python3 -c 'import sys,json; d=json.load(sys.stdin); \
-  print("capabilities:", d.get("capabilities")); \
-  print("details:", d.get("details")); \
-  mi=d.get("model_info",{}); \
-  print({k:v for k,v in mi.items() if k.endswith("context_length")})'
-```
+**Lazy senior dev. Best code is code never written.** Before writing any code, stop at the first rung that holds, go no further:
+1. Does this need to exist at all? If not, skip it. (YAGNI)
+2. Does the standard library do it? Use it.
+3. Does a native platform feature cover it? Use it.
+4. Does an already-installed dependency solve it? Use it.
+5. Can it be one line? Make it one line.
+6. Only then: the minimum code that works.
 
-You get the three things every harness wants:
-
-| Field | From `/api/show` | Meaning |
-|---|---|---|
-| context window | `model_info.*.context_length` | max prompt+output tokens |
-| capabilities | `capabilities` (`tools`, `thinking`, `vision`, …) | tool calls, reasoning, image input |
-| size / quant | `details.parameter_size`, `details.quantization_level` | informational |
-
-The model's page at `https://ollama.com/library/<model>` lists the context length too.
-
-## Shared metadata functions (lib.sh)
-
-All three launchers now share metadata-fetching functions:
-
-- `_model_metadata <model>` — fetches `/api/show`, returns JSON with `context_window`, `capabilities`, `details`
-- `_codex_catalogue <model>` — builds Codex catalogue from metadata
-- `_pi_model_dict <model>` — builds pi model entry from metadata
-
-These ensure consistent metadata across all harnesses.
-
-## Codex (automatic)
-
-`ollama-codex` already does this for you: on each launch `_codex_catalogue`
-(in `lib.sh`) fetches `/api/show` for the chosen model, derives
-`context_window` (from `model_info.*.context_length`), reasoning levels and
-image support (from `capabilities`), writes a catalogue to
-`~/.config/ollama-scripts/codex-catalogue.json`, and passes it via
-`-c model_catalog_json=…`. No action needed. If the fetch fails it still writes
-a 128k-context fallback entry, which silences the warning.
-
-To override manually, the catalogue schema is:
-
-```jsonc
-// ~/.codex/ollama-cloud-models.json
-{
-  "models": [
-    {
-      "slug": "gpt-oss:120b",
-      "display_name": "gpt-oss:120b",
-      "context_window": 131072,          // from /api/show
-      "input_modalities": ["text"],       // add "image" if capabilities has vision
-      "supported_reasoning_levels": ["low","medium","high"],  // if capabilities has thinking
-      "supports_parallel_tool_calls": true,                   // if capabilities has tools
-      "supported_in_api": true,
-      "visibility": "list"
-    }
-  ]
-}
-```
-
-Wire it in `ollama-codex` by adding one line to the `exec codex` block:
-
-```sh
-  -c 'model_catalog_json="'"$HOME"'/.codex/ollama-cloud-models.json"' \
-```
-
-`context_window` alone silences the warning; the rest improves behaviour.
-
-## pi (automatic)
-
-`ollama-pi` now auto-fetches metadata for the selected model. On each launch:
-
-1. `_pi_model_dict` fetches `/api/show` for the chosen model
-1. Builds a model entry with `contextWindow`, `reasoning`, `input` modalities
-1. Writes to `~/.pi/agent/models.json` with the selected model having full metadata
-
-The selected model gets full metadata; other models in the list get `id` only.
-This ensures the model you're actually using has correct context window and
-capabilities without slowing startup with 30+ API calls.
-
-Fields populated:
-
-```jsonc
-{
-  "id": "gpt-oss:120b",
-  "contextWindow": 131072,        // from /api/show
-  "maxTokens": 16384,             // default
-  "reasoning": true,              // if capabilities has thinking
-  "input": ["text", "image"],     // vision if capabilities has it
-  "compat": { "supportsReasoningEffort": true }  // if reasoning
-}
-```
-
-## Claude Code
-
-`ollama-claude` needs no catalogue — Claude Code takes the model from
-`ANTHROPIC_MODEL` and doesn't emit this warning. If context handling feels off,
-there's nothing to tune here; it's driven by the endpoint.
+Rules:
+- No abstractions that weren't explicitly requested.
+- No new dependency if it can be avoided.
+- No boilerplate nobody asked for.
+- Prefer deletion over addition, boring over clever, the fewest files possible.
+- Push back on complex requests: "Do you actually need X, or does Y already cover it?"
